@@ -78,6 +78,8 @@ module user_proj_example #(
     wire [31:0] rdata; 
     wire [31:0] wdata;
     wire [BITS-1:0] count;
+    wire PWM_OUT;
+    wire [7:0] DUTY_CYCLE;
 
     wire valid;
     wire [3:0] wstrb;
@@ -90,7 +92,8 @@ module user_proj_example #(
     assign wdata = wbs_dat_i;
 
     // IO
-    assign io_out = count;
+    assign io_out = {count,PWM_OUT};
+    assign io_in = DUTY_CYCLE;
     assign io_oeb = {(`MPRJ_IO_PADS-1){rst}};
 
     // IRQ
@@ -104,9 +107,9 @@ module user_proj_example #(
     assign clk = (~la_oenb[64]) ? la_data_in[64]: wb_clk_i;
     assign rst = (~la_oenb[65]) ? la_data_in[65]: wb_rst_i;
 
-    counter #(
+    PWM_Generator #(
         .BITS(BITS)
-    ) counter(
+    ) PWM_Generator(
         .clk(clk),
         .reset(rst),
         .ready(wbs_ack_o),
@@ -116,7 +119,9 @@ module user_proj_example #(
         .wstrb(wstrb),
         .la_write(la_write),
         .la_input(la_data_in[63:32]),
-        .count(count)
+        .count(count),
+	.PWM_OUT(PWM_OUT),
+	.DUTY_CYCLE(DUTY_CYCLE)
     );
 
 endmodule
@@ -162,4 +167,59 @@ module counter #(
     end
 
 endmodule
+
+module PWM_Generator#(
+    parameter BITS = 32
+)(
+ 
+	input clk,             // Clock input
+	input [7:0]DUTY_CYCLE, // Input Duty Cycle
+	output PWM_OUT,         // Output PWM
+	input reset,
+	input valid,
+	input [3:0] wstrb,
+	input [BITS-1:0] wdata,
+	input [BITS-1:0] la_write,
+	input [BITS-1:0] la_input,
+   	output ready,
+   	output [BITS-1:0] rdata,
+   	output [BITS-1:0] count
+
+
+);
+ reg ready;
+    reg [BITS-1:0] rdata;
+
+ 
+	
+reg [BITS-1:0]count=500020;
+	assign PWM_OUT=(count*2<DUTY_CYCLE)?1:0;
+	
+	always@(posedge clk) begin
+	 if (reset) begin
+            count <= 0;
+            ready <= 0;
+    end
+	  if (~|la_write) begin
+	  	  if(count>500000)
+			  count<=0;
+		  else
+			  count<=count+1;
+	  end
+	  if (valid && !ready) begin
+                ready <= 1'b1;
+                rdata <= count;
+                if (wstrb[0]) count[7:0]   <= wdata[7:0];
+		if (wstrb[1]) count[15:8]  <= wdata[15:8];
+                if (wstrb[2]) count[23:16] <= wdata[23:16];
+                if (wstrb[3]) count[31:24] <= wdata[31:24];
+       	end else if (|la_write) begin
+                count <= la_write & la_input;
+            end
+
+	end
+
+endmodule
+
+
 `default_nettype wire
